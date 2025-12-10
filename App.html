@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+      :root { 
+        --bg: #121212; --surface: #1e1e1e; --primary: #8ab4f8; --primary-dim: rgba(138, 180, 248, 0.2);
+        --danger: #f28b82; --success: #81c995; --deep: #fdd663; --text: #e8eaed; --text-dim: #9aa0a6; --border: #3c4043;
+        --reserve: #f9ab00; 
+      }
+      /* 重要: はみ出し防止の基本設定 */
+      * { box-sizing: border-box; }
+
+      body { padding: 10px; background: var(--bg); font-family: -apple-system, monospace; color: var(--text); user-select: none; margin: 0; }
+      .container { max-width: 600px; margin: 0 auto; padding: 10px; padding-bottom: 200px; padding-top: 30px;}
+
+      /* Header */
+      .daily-tracker { position: fixed; top: 0; left: 0; width: 100%; height: 28px; background: #000; z-index: 50; display: flex; align-items: center; border-bottom: 1px solid #333; padding-right: 10px;}
+      .daily-label { font-size: 10px; font-weight: bold; color: var(--text-dim); padding: 0 10px; flex-shrink: 0; }
+      .daily-bar-bg { flex-grow: 1; height: 4px; background: #333; margin-right: 10px; border-radius: 2px; overflow: hidden; }
+      .daily-bar-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.5s; box-shadow: 0 0 10px var(--primary); }
+      .daily-val { font-size: 10px; font-weight: bold; color: var(--text); padding-right: 10px; font-family: monospace; }
+      .mute-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; display: flex; align-items: center; }
+      .mute-btn.muted { color: var(--danger); }
+
+      /* Main Timer */
+      .main-timer { text-align: center; margin-bottom: 20px; background: var(--surface); padding: 15px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); border: 1px solid var(--border); position: relative; overflow: hidden; transition: box-shadow 0.3s, border-color 0.3s; }
+      .main-timer.pulse-active { border-color: var(--primary); box-shadow: 0 0 30px rgba(138, 180, 248, 0.15); }
+      .timer-label { font-size: 10px; color: var(--primary); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 5px; font-weight:bold;}
+      #active-task-display { font-size: 14px; font-weight: bold; color: var(--text); margin-bottom: 5px; min-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity 0.3s; }
+      #active-task-display.visible { opacity: 1; }
+      #countdown-time { font-size: 80px; font-weight: 700; font-family: 'SF Mono', monospace; letter-spacing: -4px; line-height: 1; color: var(--text); text-shadow: 0 0 10px rgba(255,255,255,0.1); transition: color 0.3s;}
+      #countdown-time.overtime { color: var(--danger); text-shadow: 0 0 20px var(--danger); animation: dangerPulse 1s infinite; }
+      #countdown-time.break-mode { color: var(--success); text-shadow: 0 0 20px var(--success); }
+      #elapsed-time-sub { font-size: 14px; color: var(--text-dim); margin-top: 5px; font-family: monospace;}
+      @keyframes dangerPulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+      /* Slots */
+      .task-slot { background: var(--surface); border-radius: 12px; padding: 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); transition: transform 0.1s, border-color 0.2s, background 0.2s; position: relative; }
+      .task-slot.active { border-color: var(--primary); background: rgba(138, 180, 248, 0.08); transform: scale(1.01); }
+      .task-slot.suspended { border-color: var(--deep); background: rgba(253, 214, 99, 0.05); }
+      .task-slot.suspended::after { content: "PAUSED"; position: absolute; top: 10px; right: 50px; font-size: 9px; font-weight: 800; color: #000; background: var(--deep); padding: 2px 6px; border-radius: 4px; pointer-events: none; opacity: 0.8; }
+      .task-slot.reserved { border-color: var(--reserve); background: rgba(249, 171, 0, 0.1); transform: scale(1.01); }
+      .task-slot.reserved::after { content: "NEXT UP"; position: absolute; top: 10px; right: 50px; font-size: 9px; font-weight: 800; color: #000; background: var(--reserve); padding: 2px 6px; border-radius: 4px; pointer-events: none; }
+      .task-slot.locked .slot-input, .task-slot.locked .time-controls, .task-slot.locked .clear-btn, .task-slot.locked .history-area { pointer-events: none; }
+
+      .slot-row-main { display: flex; align-items: center; gap: 10px; }
+      .input-group { flex-grow: 1; position: relative; display: flex; align-items: center; }
+      .slot-input { width: 100%; border: none; font-size: 18px; font-weight: 600; outline: none; background: transparent; padding: 5px 30px 5px 0; color: var(--text); }
+      .clear-btn { position: absolute; right: 0; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: #5f6368; cursor: pointer; padding: 8px; border-radius: 50%; }
+
+      .history-area { display: flex; overflow-x: auto; gap: 6px; padding-bottom: 5px; min-height: 2px; opacity: 0; transition: opacity 0.5s; scrollbar-width: none; }
+      .history-area.loaded { opacity: 1; }
+      .history-btn { background: #333; border: 1px solid #444; color: var(--text-dim); padding: 6px 12px; border-radius: 15px; font-size: 12px; white-space: nowrap; cursor: pointer; flex-shrink: 0; }
+      .history-btn.break-history-btn { border-color: var(--success); color: var(--success); font-weight: bold; }
+
+      /* ★ Time Controls (Fixed Layout) */
+      .time-controls { 
+        display: flex; 
+        align-items: center; 
+        gap: 5px; 
+        overflow-x: auto; 
+        padding-top:4px; 
+        flex-wrap: wrap; /* 折り返し許可 */
+      }
+      
+      .time-pill { 
+        background: #303134; 
+        border: 1px solid #5f6368; 
+        padding: 8px 10px; 
+        border-radius: 8px; 
+        font-size: 12px; 
+        font-weight: 600; 
+        color: var(--text); 
+        cursor: pointer; 
+        white-space: nowrap; 
+        text-align: center;
+        flex: 1 0 auto; /* 柔軟に伸縮 */
+      }
+      .time-pill:active { background: var(--primary); color: #000; }
+      
+      /* ★ 復活: 青色ボタンの設定 */
+      .time-pill.pomo { 
+        border-color: var(--primary); 
+        color: var(--primary); 
+      }
+      .time-pill.pomo:active { color: #000; }
+      
+      /* リセットボタン (C) */
+      .time-pill.reset { 
+        color: var(--danger); 
+        border-color: var(--danger); 
+        max-width: 40px; /* 幅固定 */
+        flex: 0 0 40px; /* 伸縮しない */
+      }
+      
+      .pred-display { font-size: 14px; font-weight: bold; color: var(--primary); margin-right: 5px; min-width: 40px; font-family: monospace; text-align: right;}
+      .deep-toggle { padding: 6px 8px; border-radius: 6px; font-size: 10px; background: #303134; border: 1px solid #5f6368; color: var(--text-dim); cursor: pointer; display: flex; align-items: center; width: fit-content; }
+      .deep-toggle.active { background: rgba(253, 214, 99, 0.2); color: var(--deep); border-color: var(--deep); }
+
+      .icon-btn { background: #303134; border: none; cursor: pointer; padding: 12px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--text); flex-shrink: 0; transition: transform 0.1s; }
+      .icon-btn:active { transform: scale(0.90); }
+      .icon-btn.stop-btn { background: rgba(129, 201, 149, 0.2); color: var(--success); }
+      .icon-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+      .icon-btn.reserve-btn { background: rgba(249, 171, 0, 0.2); color: var(--reserve); }
+
+      /* Break Slot */
+      #break-slot { border: 1px dashed var(--text-dim); display: flex; flex-direction: column; gap: 10px; background: transparent; padding: 15px; position: relative;}
+      .break-label { font-weight:bold; color:var(--success); display:flex; align-items:center; gap:5px; }
+      .break-mode { background: rgba(129, 201, 149, 0.1) !important; border-color: var(--success) !important; }
+      #break-slot.reserved { border-color: var(--reserve); background: rgba(249, 171, 0, 0.1); }
+      #break-slot.reserved::after { content: "NEXT UP"; position: absolute; top: 10px; right: 50px; font-size: 9px; font-weight: 800; color: #000; background: var(--reserve); padding: 2px 6px; border-radius: 4px; pointer-events: none; }
+      .break-controls { display: flex; gap: 8px; justify-content: space-between; }
+      .break-btn { background: #303134; border: 1px solid var(--success); color: var(--success); padding: 8px 12px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 12px; flex: 1; transition: 0.1s;}
+      .break-btn:active { background: var(--success); color: #000; }
+      .break-btn.reserve-active { background: var(--reserve); color: #000; border-color: var(--reserve); box-shadow: 0 0 10px var(--reserve); }
+      .stop-break-btn { width: 100%; padding: 12px; background: var(--success); color: #000; font-weight: 800; border: none; border-radius: 8px; margin-top: 10px; cursor: pointer; display: none; }
+
+      /* ★ Interrupt Buttons */
+      .interrupt-row { display: flex; gap: 10px; margin-bottom: 20px; }
+      .interrupt-btn {
+        flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
+        background: #303134; border: 1px solid var(--border); color: var(--text-dim);
+        padding: 12px; border-radius: 12px; cursor: pointer; font-weight: bold; transition: 0.1s;
+      }
+      .interrupt-btn span { font-size: 18px; }
+      .interrupt-btn.active-bio { border-color: #a8dadc; background: rgba(168, 218, 220, 0.15); color: #a8dadc; }
+      .interrupt-btn.active-chat { border-color: #f4a261; background: rgba(244, 162, 97, 0.15); color: #f4a261; }
+
+      .manual-section { border-top: 1px solid var(--border); margin-top: 30px; padding-top: 15px; display: flex; flex-direction: column; gap: 10px; }
+      .manual-header { font-size: 12px; color: var(--text-dim); font-weight: bold; letter-spacing: 1px; display:flex; justify-content:space-between; align-items:center;}
+      .manual-row { display: flex; gap: 8px; align-items: center; }
+      .manual-input { background: #303134; color: var(--text); border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 14px; box-sizing: border-box; flex-grow: 1; }
+      .manual-input[type="date"] { flex: 0.6; } .manual-input[type="time"] { flex: 1; text-align:center; }
+      .manual-add-btn { width: 100%; padding: 14px; background: #303134; border: 1px solid var(--border); color: var(--success); font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 5px; }
+      .manual-add-btn:active { background: var(--success); color: #000; }
+
+      .feedback-area { border-top: 1px solid var(--border); margin-top: 30px; padding-top: 15px; }
+      .feedback-label { font-size: 11px; color: var(--text-dim); font-weight: bold; margin-bottom: 8px; }
+      .feedback-input-row { display: flex; gap: 8px; }
+      .feedback-input { flex-grow: 1; background: #303134; border: 1px solid #5f6368; color: var(--text); padding: 8px; border-radius: 6px; font-size: 12px; }
+      .feedback-submit { background: var(--primary-dim); border: 1px solid var(--primary); color: var(--primary); padding: 0 12px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 18px; }
+
+      /* History List Modal */
+      #history-list-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 200; align-items: center; justify-content: center; }
+      .history-list-card { background: #202124; width: 90%; max-width:500px; height: 80%; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; border: 1px solid var(--border); }
+      .history-list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+      .history-scroll-area { flex-grow: 1; overflow-y: auto; }
+      .log-item { background: #303134; margin-bottom: 8px; padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+      .log-info { font-size: 12px; color: var(--text-dim); }
+      .log-task { font-size: 14px; font-weight: bold; color: var(--text); margin-bottom: 4px; }
+      .log-actions { display: flex; gap: 5px; }
+      .log-btn { padding: 6px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: #222; color: var(--text); cursor: pointer; }
+      .log-btn.edit { color: var(--primary); } .log-btn.del { color: var(--danger); }
+
+      /* Edit Modal */
+      #edit-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 250; align-items: center; justify-content: center; }
+      .edit-card { background: #202124; width: 85%; max-width:400px; border-radius: 12px; padding: 20px; border: 1px solid var(--border); }
+
+      /* Modals */
+      #save-overlay, #interruption-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 100; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+      #save-overlay { align-items: flex-end; }
+      .save-card { background: #202124; width: 100%; border-radius: 20px 20px 0 0; padding: 25px; box-shadow: 0 -5px 30px rgba(0,0,0,0.5); border-top: 1px solid var(--border); animation: slideUp 0.3s; max-height: 85vh; overflow-y: auto;}
+      @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      .status-btn { flex: 1; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: #303134; font-weight: bold; font-size: 14px; cursor: pointer; text-align: center; color: var(--text); }
+      .status-btn.selected { border-color: var(--success); background: rgba(129, 201, 149, 0.2); color: var(--success); }
+      textarea, input[type="text"], input[type="time"], input[type="number"], input[type="date"] { background: #303134; color: var(--text); border: 1px solid var(--border); width: 100%; box-sizing: border-box; padding: 12px; border-radius: 8px; margin-bottom: 10px; font-size: 16px;}
+      .big-save-btn { width: 100%; padding: 18px; background: var(--primary); color: #000; border: none; border-radius: 12px; font-weight: 800; font-size: 16px; margin-top: 10px; }
+      .int-btn { width: 100%; padding: 16px; margin-bottom: 10px; border-radius: 12px; font-weight: bold; font-size: 16px; border: 1px solid var(--border); background: #303134; color: var(--text); cursor:pointer; width:80%; max-width:300px; display:block; margin-left:auto; margin-right:auto;}
+
+      #toast { visibility: hidden; min-width: 200px; background-color: var(--success); color: #000; font-weight:bold; border-radius: 50px; padding: 12px 24px; position: fixed; z-index: 200; left: 50%; bottom: 30px; transform: translateX(-50%); font-size: 14px; opacity: 0; transition: opacity 0.3s, bottom 0.3s; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+      #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
+
+    </style>
+  </head>
+  <body>
+    <div class="daily-tracker">
+      <div class="daily-label">TODAY</div>
+      <div class="daily-bar-bg"><div class="daily-bar-fill" id="daily-bar"></div></div>
+      <div class="daily-val" id="daily-text">Loading...</div>
+      <button class="mute-btn" id="mute-btn" onclick="toggleMute()">
+        <span class="material-icons" id="mute-icon">volume_up</span>
+      </button>
+    </div>
+
+    <div class="container">
+      <div class="main-timer" id="main-timer-box">
+        <div class="timer-label" id="timer-label">TIME REMAINING</div>
+        <div id="active-task-display"></div>
+        <div id="countdown-time">00:00</div>
+        <div id="elapsed-time-sub">Ready to Sync</div>
+      </div>
+      <div id="slots-container"></div>
+      
+      <div class="task-slot" id="break-slot">
+        <div class="break-row">
+          <div class="break-label"><span class="material-icons">coffee</span> Recovery</div>
+          <div id="break-timer" style="font-family:monospace; color:var(--text);">00:00</div>
+        </div>
+        <div class="break-controls" id="break-controls-start">
+          <button class="break-btn" id="break-btn-5" onclick="requestStartBreak(5)">5m</button>
+          <button class="break-btn" id="break-btn-10" onclick="requestStartBreak(10)">10m</button>
+          <button class="break-btn" id="break-btn-0" onclick="toggleBreak()" style="border-color:#5f6368; color:var(--text-dim);">Manual</button>
+        </div>
+        <button class="stop-break-btn" id="stop-break-btn" onclick="endBreak()">■ STOP BREAK</button>
+      </div>
+
+      <div class="interrupt-row">
+        <button class="interrupt-btn" id="btn-bio" onclick="handleInterrupt('Bio Break')">
+          <span class="material-icons">wc</span> Bio Break
+        </button>
+        <button class="interrupt-btn" id="btn-chat" onclick="handleInterrupt('Quick Chat')">
+          <span class="material-icons">chat</span> Quick Chat
+        </button>
+      </div>
+
+      <div class="manual-section">
+        <div class="manual-header">
+          MANUAL LOG
+          <button onclick="openHistoryModal()" style="background:none; border:none; color:var(--primary); font-size:11px; cursor:pointer;">HISTORY / EDIT</button>
+        </div>
+        <div class="manual-row">
+          <input type="date" id="manual-date" class="manual-input">
+          <input type="text" id="manual-task-name" class="manual-input" placeholder="Task Name">
+        </div>
+        
+        <div class="history-area" id="manual-history-area"></div>
+        
+        <div class="manual-row">
+          <input type="time" id="manual-start-time" class="manual-input">
+          <span style="color:var(--text-dim)">~</span>
+          <input type="time" id="manual-end-time" class="manual-input">
+        </div>
+        
+        <div class="manual-row" style="justify-content: space-between;">
+           <label class="deep-toggle" id="manual-deep-toggle" onclick="toggleManualDeep()">
+             <span class="material-icons" style="font-size:14px; margin-right:4px;">local_fire_department</span>Deep
+           </label>
+           <input type="hidden" id="manual-type" value="Task">
+        </div>
+
+        <button class="manual-add-btn" onclick="submitManualEntry()">+ ADD LOG</button>
+      </div>
+
+      <div class="feedback-area">
+        <div class="feedback-label">REPORT ISSUE / IDEA</div>
+        <div class="feedback-input-row">
+          <input type="text" id="feedback-input" class="feedback-input" placeholder="バグや改善案を入力...">
+          <button class="feedback-submit" onclick="submitFeedback()">➤</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="save-overlay">
+      <div class="save-card">
+        <h3 id="save-target-name" style="margin:0 0 20px 0; color:var(--text);">Task Name</h3>
+        <div class="status-group" style="display:flex; gap:10px; margin-bottom:20px;">
+          <div class="status-btn selected" id="btn-done" onclick="selectStatus('Done')">✅ DONE</div>
+          <div class="status-btn" id="btn-wip" onclick="selectStatus('WIP')">🚧 WIP</div>
+        </div>
+        <input type="hidden" id="selected-status" value="Done">
+        <textarea id="memo" rows="2" placeholder="Memo / Review (Cmd+Enter to Save)" onkeydown="checkSubmit(event)"></textarea>
+        <button class="big-save-btn" onclick="submitLog()">SAVE LOG</button>
+        <button onclick="cancelSave()" style="width:100%; padding:15px; background:none; border:none; color:var(--text-dim); font-weight:bold; margin-top:5px;">Close</button>
+      </div>
+    </div>
+
+    <div id="interruption-modal">
+      <div style="width:100%; display:flex; flex-direction:column; align-items:center;">
+        <h3 style="color:var(--text); text-align:center; margin-bottom:20px;">Why Stop?</h3>
+        <button class="int-btn" onclick="logInterruption('Distraction')" style="color:var(--danger); border-color:var(--danger);">😫 Distraction</button>
+        <button class="int-btn" onclick="logInterruption('External Info')" style="color:var(--primary); border-color:var(--primary);">🔍 Research</button>
+        <button class="int-btn" onclick="logInterruption('Urgent')">⚡️ Urgent</button>
+        <button class="int-btn" onclick="logInterruption('Planned')" style="background:transparent; border:none; margin-top:10px;">Planned Switch</button>
+      </div>
+    </div>
+
+    <div id="history-list-modal">
+      <div class="history-list-card">
+        <div class="history-list-header">
+          <span style="font-weight:bold; color:var(--text);">EDIT LOGS</span>
+          <button onclick="closeHistoryModal()" style="background:none; border:none; color:var(--text-dim); font-size:24px;">&times;</button>
+        </div>
+        <div class="history-scroll-area" id="history-list-container">
+          <div style="color:#666; text-align:center;">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="edit-modal">
+      <div class="edit-card">
+        <h3 style="margin:0 0 15px 0; color:var(--text);">Edit Log</h3>
+        <input type="text" id="edit-task-name" placeholder="Task Name">
+        <div style="display:flex; gap:10px;">
+          <input type="time" id="edit-start-time">
+          <span style="color:#666; line-height:40px;">~</span>
+          <input type="time" id="edit-end-time">
+        </div>
+        <div style="margin-top:10px; display:flex; gap:10px;">
+          <button class="big-save-btn" onclick="submitEdit()">UPDATE</button>
+          <button onclick="closeEditModal()" style="width:100%; padding:15px; background:none; border:none; color:var(--text-dim);">Cancel</button>
+        </div>
+        <input type="hidden" id="edit-row-index">
+        <input type="hidden" id="edit-event-id">
+        <input type="hidden" id="edit-type">
+        <input type="hidden" id="edit-reason">
+      </div>
+    </div>
+
+    <div id="toast">Log Saved.</div>
+
+    <script>
+      let state = {
+        tasks: [
+          { id: 0, name: '', predicted: 0, workMs: 0, switchCount: 0, isDeep: false, reasons: [], wasPreset: false },
+          { id: 1, name: '', predicted: 0, workMs: 0, switchCount: 0, isDeep: false, reasons: [], wasPreset: false },
+          { id: 2, name: '', predicted: 0, workMs: 0, switchCount: 0, isDeep: false, reasons: [], wasPreset: false }
+        ],
+        activeTaskId: null,
+        isBreak: false,
+        breakName: 'Recovery', 
+        isMuted: false,
+        reservedTaskId: null,
+        resumeTaskId: null, 
+        reservedBreakMin: null,
+        breakMs: 0,
+        breakPredictedMs: 0,
+        pendingInterruptionTaskId: null,
+        dailyWorkMs: 0,
+        lastRecordedDate: new Date().getDate(),
+        startTimeStamp: null, 
+        accumulatedMsAtStart: 0 
+      };
+
+      let intervalId = null;
+      let pendingNextAction = null;
+      let manualIsDeep = false;
+      
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      let audioCtx = new AudioContext();
+      const SoundFX = {
+        playTone: (freq, type, duration) => {
+          if (state.isMuted) return;
+          if(audioCtx.state === 'suspended') audioCtx.resume();
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+          osc.connect(gain); gain.connect(audioCtx.destination);
+          osc.start(); osc.stop(audioCtx.currentTime + duration);
+        },
+        start: () => { SoundFX.playTone(880, 'sine', 0.1); },
+        finish: () => { SoundFX.playTone(523, 'sine', 0.1); setTimeout(()=>SoundFX.playTone(784, 'sine', 0.2), 100); },
+      };
+
+      function init() {
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        document.getElementById('manual-date').value = `${yyyy}-${mm}-${dd}`;
+        const hh = String(now.getHours()).padStart(2, '0');
+        const min = String(now.getMinutes()).padStart(2, '0');
+        document.getElementById('manual-start-time').value = `${hh}:${min}`;
+        document.getElementById('manual-end-time').value = `${hh}:${min}`;
+
+        google.script.run
+          .withSuccessHandler((cloudState) => {
+            if (cloudState) {
+              try {
+                const parsed = JSON.parse(cloudState);
+                state = { ...state, ...parsed };
+                if (state.lastRecordedDate !== new Date().getDate()) {
+                  state.dailyWorkMs = 0;
+                  state.lastRecordedDate = new Date().getDate();
+                }
+              } catch(e) { console.error("Parse Error", e); }
+            }
+            renderSlots();
+            updateHistory();
+            updateUI();
+            intervalId = setInterval(tick, 1000); 
+          })
+          .loadCloudState();
+      }
+
+      function updateHistory() {
+        google.script.run.withSuccessHandler((h) => {
+          updateHistoryUI(h || []);
+          updateManualHistoryUI(h || []);
+        }).getRecentTasks();
+      }
+
+      function renderSlots() {
+        const container = document.getElementById('slots-container');
+        container.innerHTML = '';
+        state.tasks.forEach((task, index) => {
+          const div = document.createElement('div');
+          div.className = 'task-slot'; div.id = `slot-${index}`;
+          const showClear = task.name ? 'flex' : 'none';
+          
+          div.innerHTML = `
+            <div class="slot-row-main">
+              <div class="input-group">
+                <input type="text" class="slot-input" id="input-${index}" placeholder="Empty Slot" value="${task.name}" oninput="updateName(${index}, this.value)">
+                <button class="clear-btn" id="clear-${index}" onclick="clearName(${index})" style="display:${showClear}"><span class="material-icons" style="font-size:16px">close</span></button>
+              </div>
+              <button class="icon-btn" id="action-btn-${index}" onclick="handleTaskAction(${index})">
+                <span class="material-icons" id="icon-${index}">play_arrow</span>
+              </button>
+              <button class="icon-btn stop-btn" id="finish-btn-${index}" onclick="finishTask(${index})"><span class="material-icons">check</span></button>
+            </div>
+            <div class="history-area" id="hist-${index}"></div>
+            <div class="time-controls">
+              <button class="deep-toggle ${task.isDeep ? 'active' : ''}" id="deep-${index}" onclick="toggleDeep(${index})"><span class="material-icons" style="font-size:14px; margin-right:4px;">local_fire_department</span>Deep</button>
+              <span class="pred-display" id="pred-${index}">${task.predicted}m</span>
+              <button class="time-pill" onclick="addTime(${index}, 5)">+5</button><button class="time-pill" onclick="addTime(${index}, 10)">+10</button><button class="time-pill" onclick="addTime(${index}, 30)">+30</button><button class="time-pill" onclick="addTime(${index}, 60)">+60</button>
+              <button class="time-pill pomo" onclick="setTime(${index}, 25)">25</button><button class="time-pill pomo" onclick="setTime(${index}, 50)">50</button>
+              <button class="time-pill reset" onclick="setTime(${index}, 0)">C</button>
+            </div>`;
+          container.appendChild(div);
+        });
+      }
+
+      function updateHistoryUI(items) {
+        for (let i = 0; i < 3; i++) {
+          const area = document.getElementById(`hist-${i}`);
+          if (!area) continue; area.innerHTML = '';
+          items.forEach(item => {
+            const btn = document.createElement('button'); btn.className = 'history-btn'; btn.innerText = item;
+            btn.onclick = () => fillSlot(i, item); area.appendChild(btn);
+          });
+          setTimeout(() => area.classList.add('loaded'), 50);
+        }
+      }
+
+      function updateManualHistoryUI(items) {
+        const area = document.getElementById('manual-history-area');
+        if (!area) return;
+        area.innerHTML = '';
+        const breakBtn = document.createElement('button');
+        breakBtn.className = 'history-btn break-history-btn';
+        breakBtn.innerText = "☕️ Break";
+        breakBtn.onclick = () => fillManualEntry("Recovery", "Break");
+        area.appendChild(breakBtn);
+        items.forEach(item => {
+          const btn = document.createElement('button'); 
+          btn.className = 'history-btn'; 
+          btn.innerText = item;
+          btn.onclick = () => fillManualEntry(item, "Task");
+          area.appendChild(btn);
+        });
+        setTimeout(() => area.classList.add('loaded'), 50);
+      }
+
+      function fillManualEntry(name, type) {
+        document.getElementById('manual-task-name').value = name;
+        document.getElementById('manual-type').value = type;
+      }
+      
+      function toggleManualDeep() {
+        manualIsDeep = !manualIsDeep;
+        const btn = document.getElementById('manual-deep-toggle');
+        if(manualIsDeep) btn.classList.add('active'); else btn.classList.remove('active');
+      }
+
+      function submitManualEntry() {
+        const dateVal = document.getElementById('manual-date').value;
+        const name = document.getElementById('manual-task-name').value;
+        const sTime = document.getElementById('manual-start-time').value;
+        const eTime = document.getElementById('manual-end-time').value;
+        const type = document.getElementById('manual-type').value;
+        
+        if(!dateVal || !name || !sTime || !eTime) { showToast('Fill required fields'); return; }
+        
+        const startISO = `${dateVal}T${sTime}:00`;
+        const endISO = `${dateVal}T${eTime}:00`;
+        
+        const payload = {
+          startTime: startISO,
+          endTime: endISO,
+          type: type,
+          taskName: name,
+          predicted: 0,
+          isDeepWork: manualIsDeep,
+          status: 'Done',
+          memo: 'Manual Entry'
+        };
+        
+        const btn = document.querySelector('.manual-add-btn');
+        const originalText = btn.innerText; btn.innerText = 'SAVING...'; btn.disabled = true;
+        
+        google.script.run.withSuccessHandler(res => {
+            showToast(res); 
+            btn.innerText = originalText; btn.disabled = false;
+            document.getElementById('manual-task-name').value = ''; 
+            document.getElementById('manual-type').value = 'Task';
+            manualIsDeep = false;
+            document.getElementById('manual-deep-toggle').classList.remove('active');
+        }).withFailureHandler(err => { showToast('Error: ' + err); btn.innerText = originalText; btn.disabled = false; }).manualLogSession(payload);
+      }
+
+      function openHistoryModal() {
+        document.getElementById('history-list-modal').style.display = 'flex';
+        const container = document.getElementById('history-list-container');
+        container.innerHTML = '<div style="color:#666;text-align:center;">Loading...</div>';
+        
+        google.script.run.withSuccessHandler(logs => {
+          container.innerHTML = '';
+          if(!logs.length) { container.innerHTML = '<div style="color:#666;">No logs found</div>'; return; }
+          logs.forEach(log => {
+            const date = new Date(log.startTime);
+            const timeStr = `${date.getHours()}:${String(date.getMinutes()).padStart(2,'0')}`;
+            const div = document.createElement('div');
+            div.className = 'log-item';
+            div.innerHTML = `
+              <div>
+                <div class="log-task">${log.taskName} (${log.duration}m)</div>
+                <div class="log-info">${timeStr} - ${log.type}</div>
+              </div>
+              <div class="log-actions">
+                <button class="log-btn edit" onclick='openEdit(${JSON.stringify(log)})'>EDIT</button>
+                <button class="log-btn del" onclick="deleteLog(${log.rowIndex}, '${log.eventId}')">DEL</button>
+              </div>`;
+            container.appendChild(div);
+          });
+        }).getLogHistoryData();
+      }
+      function closeHistoryModal() { document.getElementById('history-list-modal').style.display = 'none'; }
+
+      function deleteLog(rowIndex, eventId) {
+        if(!confirm('Delete this log and calendar event?')) return;
+        google.script.run.withSuccessHandler(res => { showToast(res); openHistoryModal(); }).deleteSessionLog(rowIndex, eventId);
+      }
+
+      function openEdit(log) {
+        document.getElementById('edit-task-name').value = log.taskName;
+        
+        const s = new Date(log.startTime);
+        const e = new Date(log.endTime);
+        const sTime = `${String(s.getHours()).padStart(2,'0')}:${String(s.getMinutes()).padStart(2,'0')}`;
+        const eTime = `${String(e.getHours()).padStart(2,'0')}:${String(e.getMinutes()).padStart(2,'0')}`;
+        
+        document.getElementById('edit-start-time').value = sTime;
+        document.getElementById('edit-end-time').value = eTime;
+        document.getElementById('edit-row-index').value = log.rowIndex;
+        document.getElementById('edit-event-id').value = log.eventId;
+        document.getElementById('edit-type').value = log.type;
+        document.getElementById('edit-reason').value = log.reason;
+        
+        document.getElementById('edit-modal').style.display = 'flex';
+      }
+      function closeEditModal() { document.getElementById('edit-modal').style.display = 'none'; }
+
+      function submitEdit() {
+        const name = document.getElementById('edit-task-name').value;
+        const sTime = document.getElementById('edit-start-time').value;
+        const eTime = document.getElementById('edit-end-time').value;
+        const rowIndex = document.getElementById('edit-row-index').value;
+        const eventId = document.getElementById('edit-event-id').value;
+        const type = document.getElementById('edit-type').value;
+        const reason = document.getElementById('edit-reason').value;
+        
+        const now = new Date(); 
+        const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        const sFull = `${dateStr}T${sTime}:00`;
+        const eFull = `${dateStr}T${eTime}:00`;
+
+        const data = {
+          rowIndex: rowIndex,
+          eventId: eventId,
+          taskName: name,
+          startTime: sFull,
+          endTime: eFull,
+          type: type,
+          reason: reason
+        };
+        
+        google.script.run.withSuccessHandler(res => {
+          showToast(res); closeEditModal(); openHistoryModal();
+        }).updateSessionLog(data);
+      }
+
+      function saveState() {
+        const json = JSON.stringify(state);
+        google.script.run.saveCloudState(json);
+      }
+
+      function tick() {
+        if (!state.startTimeStamp) { updateDisplay(); return; }
+        const now = Date.now();
+        const start = new Date(state.startTimeStamp).getTime();
+        const currentSessionDuration = now - start;
+        if (state.activeTaskId !== null) { state.tasks[state.activeTaskId].workMs = state.accumulatedMsAtStart + currentSessionDuration; }
+        if (state.isBreak) { state.breakMs = state.accumulatedMsAtStart + currentSessionDuration; }
+        updateDisplay(currentSessionDuration);
+      }
+
+      function startTask(index) {
+        state.activeTaskId = index; state.reservedTaskId = null; state.isBreak = false;
+        state.accumulatedMsAtStart = state.tasks[index].workMs; state.startTimeStamp = new Date().toISOString();
+        SoundFX.start(); updateUI(); saveState();
+      }
+
+      function stopTask(index) {
+        const now = Date.now();
+        const start = new Date(state.startTimeStamp).getTime();
+        const sessionMs = now - start;
+        state.tasks[index].workMs = state.accumulatedMsAtStart + sessionMs; state.dailyWorkMs += sessionMs;
+        syncPendingSession('Manual Pause');
+        state.startTimeStamp = null; state.accumulatedMsAtStart = 0; state.activeTaskId = null;
+        updateUI(); saveState();
+      }
+
+      function initiateBreak(min, breakName = 'Recovery') {
+        state.activeTaskId = null; 
+        state.isBreak = true; 
+        state.breakName = breakName;
+        state.reservedBreakMin = null; 
+        state.breakPredictedMs = min * 60 * 1000; 
+        state.accumulatedMsAtStart = 0; 
+        state.startTimeStamp = new Date().toISOString();
+        SoundFX.start(); updateUI(); saveState();
+      }
+
+      function stopBreak(reason = 'Manual Stop') {
+        syncPendingSession(reason);
+        state.startTimeStamp = null; state.accumulatedMsAtStart = 0; state.isBreak = false;
+        updateUI(); saveState();
+      }
+
+      function syncPendingSession(reason) {
+        if (state.startTimeStamp) {
+           const endTime = new Date().toISOString();
+           const payload = { startTime: state.startTimeStamp, endTime: endTime, reason: reason };
+           if (state.activeTaskId !== null) { payload.type = 'Task'; payload.taskName = state.tasks[state.activeTaskId].name; } 
+           else if (state.isBreak) { payload.type = 'Break'; payload.taskName = state.breakName || 'Recovery'; } 
+           else { return; }
+           google.script.run.withSuccessHandler(res => showToast(res)).logSessionChunk(payload);
+        }
+      }
+
+      function handleInterrupt(name) {
+        if (state.isBreak && state.breakName === name) {
+           endBreak();
+           return;
+        }
+        if (state.activeTaskId !== null) {
+           const currentTaskId = state.activeTaskId;
+           stopTask(currentTaskId); 
+           state.resumeTaskId = currentTaskId; 
+        }
+        initiateBreak(0, name);
+      }
+
+      function handleTaskAction(index) {
+        if (!state.tasks[index].name) { showToast('Name Required'); document.getElementById(`input-${index}`).focus(); return; }
+        if (state.tasks[index].predicted === 0) { showToast('Set time first!'); return; }
+        if (state.isBreak) { 
+           state.reservedTaskId = (state.reservedTaskId === index) ? null : index; 
+           updateUI(); saveState(); 
+        } else {
+          if (state.activeTaskId !== null) {
+            if (state.activeTaskId === index) triggerInterruptionModal(() => stopTask(index), index);
+            else triggerInterruptionModal(() => startTask(index), state.activeTaskId);
+          } else { 
+            startTask(index); 
+          }
+        }
+      }
+
+      function requestStartBreak(min) {
+        if (state.activeTaskId !== null) { triggerInterruptionModal(() => initiateBreak(min, 'Recovery'), state.activeTaskId); } 
+        else { initiateBreak(min, 'Recovery'); }
+      }
+
+      function toggleBreak() { 
+        if (state.isBreak) stopBreak('Manual Stop'); 
+        else requestStartBreak(0); 
+      }
+
+      function endBreak() {
+        stopBreak('Break End'); 
+        if (state.resumeTaskId !== null) {
+           startTask(state.resumeTaskId);
+           state.resumeTaskId = null;
+        } else if (state.reservedTaskId !== null) { 
+           startTask(state.reservedTaskId); 
+        }
+      }
+
+      function triggerInterruptionModal(next, curId) {
+        pendingNextAction = next;
+        if (curId !== null) state.tasks[curId].switchCount++;
+        document.getElementById('interruption-modal').style.display = 'flex';
+      }
+      function logInterruption(reason) {
+        const now = Date.now();
+        const start = new Date(state.startTimeStamp).getTime();
+        const sessionMs = now - start;
+        if (state.activeTaskId !== null) { state.tasks[state.activeTaskId].workMs = state.accumulatedMsAtStart + sessionMs; state.dailyWorkMs += sessionMs; }
+        syncPendingSession(reason);
+        state.startTimeStamp = null; state.accumulatedMsAtStart = 0; 
+        document.getElementById('interruption-modal').style.display = 'none';
+        if (pendingNextAction) pendingNextAction();
+      }
+
+      let finishingIndex = null;
+      function finishTask(index) {
+        if(state.activeTaskId !== index && state.tasks[index].workMs <= 0) { showToast("Start timer first!"); return; }
+        if(!state.tasks[index].name) return;
+        if (state.activeTaskId === index) {
+           const now = Date.now();
+           const start = new Date(state.startTimeStamp).getTime();
+           const sessionMs = now - start;
+           state.tasks[index].workMs = state.accumulatedMsAtStart + sessionMs; state.dailyWorkMs += sessionMs;
+           syncPendingSession('Done');
+           state.startTimeStamp = null; state.accumulatedMsAtStart = 0; state.activeTaskId = null;
+        }
+        SoundFX.finish();
+        const slot = document.getElementById(`slot-${index}`);
+        if(slot) slot.classList.remove('suspended', 'active', 'locked');
+        finishingIndex = index;
+        document.getElementById('save-target-name').innerText = state.tasks[index].name;
+        document.getElementById('memo').value = '';
+        selectStatus('Done');
+        document.getElementById('save-overlay').style.display = 'flex';
+        updateUI(); 
+      }
+
+      function submitLog() {
+        const t = state.tasks[finishingIndex];
+        const data = {
+          taskName: t.name, workMs: t.workMs, breakMs: state.breakMs, predicted: t.predicted,
+          isDeepWork: t.isDeep, status: document.getElementById('selected-status').value,
+          switchCount: t.switchCount, interruptionReasons: t.reasons,
+          memo: document.getElementById('memo').value
+        };
+        google.script.run.withSuccessHandler(() => {
+          showToast('LOG SAVED');
+          state.tasks[finishingIndex] = { id: finishingIndex, name: '', predicted: 0, workMs: 0, switchCount: 0, isDeep: false, reasons: [], wasPreset: false };
+          document.getElementById(`input-${finishingIndex}`).value = ''; document.getElementById(`pred-${finishingIndex}`).innerText = '0m'; updateClearBtn(finishingIndex, '');
+          document.getElementById('save-overlay').style.display = 'none'; 
+          state.breakMs = 0; state.breakPredictedMs = 0;
+          if (state.reservedBreakMin !== null) initiateBreak(state.reservedBreakMin); else { updateUI(); saveState(); }
+          updateDisplay();
+        }).saveLog(data);
+      }
+
+      function updateDisplay(sessionDelta = 0) {
+        const mainTimer = document.getElementById('countdown-time');
+        const mainBox = document.getElementById('main-timer-box');
+        const label = document.getElementById('timer-label');
+        const sub = document.getElementById('elapsed-time-sub');
+        const taskNameDisplay = document.getElementById('active-task-display');
+        
+        const totalDaily = state.dailyWorkMs + (state.activeTaskId !== null ? sessionDelta : 0);
+        const pct = Math.min((totalDaily / (4*3600000)) * 100, 100);
+        document.getElementById('daily-bar').style.width = pct + '%';
+        const h = Math.floor(totalDaily / 3600000); const m = Math.floor((totalDaily % 3600000) / 60000);
+        document.getElementById('daily-text').innerText = `${h}h ${m}m`;
+
+        if (state.activeTaskId !== null) {
+          label.innerText = "TIME REMAINING"; mainTimer.classList.remove('break-mode'); mainBox.classList.add('pulse-active');
+          const t = state.tasks[state.activeTaskId];
+          taskNameDisplay.innerText = t.name; taskNameDisplay.classList.add('visible');
+          const predictedMs = t.predicted * 60000; const currentTotalWork = t.workMs; const remainingMs = predictedMs - currentTotalWork;
+          mainTimer.innerText = (remainingMs < 0 ? "-" : "") + msToTime(Math.abs(remainingMs));
+          if(remainingMs < 0) mainTimer.classList.add('overtime'); else mainTimer.classList.remove('overtime');
+          sub.innerText = `Elapsed: ${msToTime(currentTotalWork)}`;
+        } else if (state.isBreak) {
+           label.innerText = (state.breakName || "RECOVERY BREAK").toUpperCase(); 
+           mainTimer.classList.remove('overtime'); mainTimer.classList.add('break-mode'); mainBox.classList.remove('pulse-active');
+           taskNameDisplay.innerText = "Taking a Break"; taskNameDisplay.classList.add('visible');
+           const currentTotalBreak = state.breakMs; 
+           if (state.breakPredictedMs > 0) {
+             const remaining = state.breakPredictedMs - currentTotalBreak;
+             mainTimer.innerText = (remaining < 0 ? "+" : "") + msToTime(Math.abs(remaining));
+             if(remaining < 0) mainTimer.classList.add('overtime'); sub.innerText = "Target: " + (state.breakPredictedMs/60000) + "m";
+           } else { mainTimer.innerText = msToTime(currentTotalBreak); sub.innerText = "Manual Mode"; }
+        } else {
+           label.innerText = "READY"; mainTimer.innerText = "00:00"; mainTimer.classList.remove('overtime', 'break-mode'); mainBox.classList.remove('pulse-active'); sub.innerText = "Select Task";
+           taskNameDisplay.innerText = ""; taskNameDisplay.classList.remove('visible');
+        }
+        document.getElementById('break-timer').innerText = msToTime(state.breakMs);
+      }
+
+      function updateUI() {
+        state.tasks.forEach((t, i) => {
+          const slot = document.getElementById(`slot-${i}`);
+          const icon = document.getElementById(`icon-${i}`);
+          const btn = document.getElementById(`action-btn-${i}`);
+          const fBtn = document.getElementById(`finish-btn-${i}`);
+          if(!slot) return;
+          slot.classList.remove('active', 'paused', 'suspended', 'reserved', 'locked');
+          btn.classList.remove('reserve-btn');
+          const isRunning = (i === state.activeTaskId); const hasProgress = (t.workMs > 0);
+          if (fBtn) fBtn.disabled = !(isRunning || hasProgress);
+          if (state.isBreak) {
+            if (state.reservedTaskId === i) { slot.classList.add('reserved'); icon.innerText = 'flash_on'; btn.classList.add('reserve-btn'); }
+            else { icon.innerText = 'flash_on'; icon.style.opacity = 0.3; }
+          } else {
+            icon.style.opacity = 1;
+            if (isRunning) { slot.classList.add('active', 'locked'); icon.innerText = 'pause'; }
+            else { icon.innerText = 'play_arrow'; if (hasProgress) { slot.classList.add('suspended', 'locked'); } else { slot.classList.add('paused'); } }
+          }
+        });
+        const bSlot = document.getElementById('break-slot');
+        const startCtrls = document.getElementById('break-controls-start');
+        const stopBtn = document.getElementById('stop-break-btn');
+        bSlot.classList.remove('break-mode', 'reserved');
+        document.querySelectorAll('.break-btn').forEach(b => b.classList.remove('reserve-active'));
+        
+        document.getElementById('btn-bio').classList.remove('active-bio');
+        document.getElementById('btn-chat').classList.remove('active-chat');
+
+        if(state.isBreak) {
+           if (state.breakName === 'Bio Break') {
+             document.getElementById('btn-bio').classList.add('active-bio');
+             bSlot.classList.add('break-mode'); startCtrls.style.display = 'none'; stopBtn.style.display = 'block';
+           } else if (state.breakName === 'Quick Chat') {
+             document.getElementById('btn-chat').classList.add('active-chat');
+             bSlot.classList.add('break-mode'); startCtrls.style.display = 'none'; stopBtn.style.display = 'block';
+           } else {
+             bSlot.classList.add('break-mode'); startCtrls.style.display = 'none'; stopBtn.style.display = 'block';
+           }
+        } else {
+           bSlot.classList.remove('break-mode'); startCtrls.style.display = 'flex'; stopBtn.style.display = 'none';
+           if (state.reservedBreakMin !== null) {
+             bSlot.classList.add('reserved');
+             const targetId = state.reservedBreakMin === 0 ? 'break-btn-0' : `break-btn-${state.reservedBreakMin}`;
+             const b = document.getElementById(targetId); if(b) b.classList.add('reserve-active');
+           }
+        }
+        const mIcon = document.getElementById('mute-icon'); const mBtn = document.getElementById('mute-btn');
+        if (state.isMuted) { mIcon.innerText = 'volume_off'; mBtn.classList.add('muted'); } else { mIcon.innerText = 'volume_up'; mBtn.classList.remove('muted'); }
+      }
+
+      function addTime(idx, min) { if (state.tasks[idx].wasPreset) { state.tasks[idx].predicted = min; state.tasks[idx].wasPreset = false; } else { state.tasks[idx].predicted += min; } state.reservedBreakMin = null; updateTimeDisplay(idx); updateUI(); }
+      function setTime(idx, min) { state.tasks[idx].predicted = min; if (min === 25) { state.reservedBreakMin = 5; state.tasks[idx].wasPreset = true; } else if (min === 50) { state.reservedBreakMin = 10; state.tasks[idx].wasPreset = true; } else { state.reservedBreakMin = null; state.tasks[idx].wasPreset = false; } updateTimeDisplay(idx); updateUI(); }
+      function updateTimeDisplay(idx) { document.getElementById(`pred-${idx}`).innerText = state.tasks[idx].predicted + 'm'; updateDisplay(); saveState(); }
+      function updateName(idx, val) { state.tasks[idx].name = val; updateClearBtn(idx, val); saveState(); }
+      function toggleDeep(idx) { state.tasks[idx].isDeep = !state.tasks[idx].isDeep; document.getElementById(`deep-${idx}`).classList.toggle('active'); saveState(); }
+      function selectStatus(s) { document.getElementById('selected-status').value = s; document.getElementById('btn-done').className = s === 'Done' ? 'status-btn selected' : 'status-btn'; document.getElementById('btn-wip').className = s === 'WIP' ? 'status-btn selected' : 'status-btn'; }
+      function cancelSave() { document.getElementById('save-overlay').style.display = 'none'; }
+      function showToast(msg) { const x = document.getElementById("toast"); x.innerText = msg; x.className = "show"; setTimeout(() => x.className = x.className.replace("show", ""), 2000); }
+      function msToTime(d) { let m = Math.floor(d / 60000); let s = Math.floor((d % 60000) / 1000); return (m < 10 ? "0"+m : m) + ":" + (s < 10 ? "0"+s : s); }
+      function updateClearBtn(idx, val) { const btn = document.getElementById(`clear-${idx}`); if(btn) btn.style.display = val ? 'flex' : 'none'; }
+      function toggleMute() { state.isMuted = !state.isMuted; updateUI(); saveState(); }
+      function checkSubmit(e) { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') submitLog(); }
+      function submitFeedback() { const input = document.getElementById('feedback-input'); if(input.value) google.script.run.withSuccessHandler(() => {showToast('Sent'); input.value='';}).saveFeedback(input.value); }
+      function fillSlot(idx, name) { state.tasks[idx].name = name; document.getElementById(`input-${idx}`).value = name; updateClearBtn(idx, name); setTime(idx, 0); saveState(); }
+      function clearName(idx) { state.tasks[idx].name = ''; document.getElementById(`input-${idx}`).value = ''; updateClearBtn(idx, ''); saveState(); }
+
+      init();
+    </script>
+  </body>
+</html>
