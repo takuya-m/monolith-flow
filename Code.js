@@ -1,6 +1,8 @@
+// ★重要: GitHubからデプロイ後、スクリプトプロパティまたは直書きでIDを設定してください
 const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
 
 function doGet(e) {
+  // HTMLファイル名に合わせて変更してください（Sidebar または App）
   return HtmlService.createHtmlOutputFromFile('App')
     .setTitle('Focus Cockpit Cloud')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no')
@@ -30,7 +32,7 @@ function getRecentTasks() {
   if (lastRow < 2) return [];
   const values = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
   const tasks = values.map(r => String(r[0]).trim()).filter(t => t !== "");
-  const uniqueTasks = [...new Set(tasks.reverse())].slice(15);
+  const uniqueTasks = [...new Set(tasks.reverse())].slice(0, 15);
   return uniqueTasks;
 }
 
@@ -67,7 +69,6 @@ function logSessionChunk(data) {
     let title = "", colorId = "";
 
     if (data.type === 'Break') {
-      // "Recovery"なら"休憩"、それ以外(Bio Break等)ならその名前を使う
       title = (data.taskName === 'Recovery') ? "休憩" : data.taskName;
       colorId = CalendarApp.EventColor.PALE_GREEN;
     } else {
@@ -76,6 +77,10 @@ function logSessionChunk(data) {
     }
     
     const event = cal.createEvent(title, start, end, { description: `Reason: ${data.reason}` });
+    
+    // ★追加: これで同僚には「予定あり」とだけ表示され、詳細は見えなくなります
+    event.setVisibility(CalendarApp.Visibility.PRIVATE);
+    
     event.setColor(colorId);
     
     const eventId = event.getId();
@@ -86,7 +91,7 @@ function logSessionChunk(data) {
       data.type, data.taskName, data.reason, eventId
     ]);
 
-    return "Synced 📅";
+    return "Synced 📅 (Private)";
 
   } catch (e) {
     return "Error: " + e.toString();
@@ -292,7 +297,6 @@ function updateSessionLog(data) {
         const cal = CalendarApp.getDefaultCalendar();
         const event = cal.getEventById(data.eventId);
         if (event) {
-          // タイトル更新ロジック
           let title = "";
           if (data.type === 'Break') {
             title = (data.taskName === 'Recovery') ? "休憩" : data.taskName;
@@ -303,6 +307,8 @@ function updateSessionLog(data) {
           }
           event.setTitle(title);
           event.setTime(start, end);
+          // 必要であれば編集時にも非公開を強制する場合は以下をコメントアウト解除
+          // event.setVisibility(CalendarApp.Visibility.PRIVATE);
         }
       } catch (e) {
         console.warn("Calendar update failed: " + e);
